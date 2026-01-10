@@ -70,7 +70,7 @@
                 --no-entry \
                 -D_GNU_SOURCE \
                 -I. \
-                -o mquickjs_exnref${suffix}.wasm \
+                -o mquickjs${suffix}.wasm \
                 wasm_wrapper.c mquickjs.c dtoa.c libm.c cutils.c
 
               runHook postBuild
@@ -79,7 +79,7 @@
             installPhase = ''
               runHook preInstall
               mkdir -p $out/lib
-              cp mquickjs_exnref${suffix}.wasm $out/lib/
+              cp mquickjs${suffix}.wasm $out/lib/
               runHook postInstall
             '';
 

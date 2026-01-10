@@ -157,10 +157,10 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref.wasm
-          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_small.wasm
-          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_wasi.wasm --wasi
-          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_wasi_small.wasm --wasi
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs.wasm
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_small.wasm
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_wasi.wasm --wasi
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_wasi_small.wasm --wasi
 
   # Release (when update-flake created a new version, or force_release)
   release:
@@ -219,10 +219,10 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.name }}
           files: |
-            mquickjs_exnref.wasm
-            mquickjs_exnref_small.wasm
-            mquickjs_exnref_wasi.wasm
-            mquickjs_exnref_wasi_small.wasm
+            mquickjs.wasm
+            mquickjs_small.wasm
+            mquickjs_wasi.wasm
+            mquickjs_wasi_small.wasm
             SHA256SUMS
           body: |
             **mquickjs commit:** https://github.com/bellard/mquickjs/commit/${{ steps.tag.outputs.full_commit }}
@@ -230,12 +230,12 @@ jobs:
             ## Artifacts
 
             **Deterministic (sandboxed eval):**
-            - `mquickjs_exnref.wasm` - Standard build (-O2), faster execution
-            - `mquickjs_exnref_small.wasm` - Size-optimized (-Oz), ~35% smaller
+            - `mquickjs.wasm` - Standard build (-O2), faster execution
+            - `mquickjs_small.wasm` - Size-optimized (-Oz), ~35% smaller
 
             **WASI (real time/random):**
-            - `mquickjs_exnref_wasi.wasm` - Standard build (-O2)
-            - `mquickjs_exnref_wasi_small.wasm` - Size-optimized (-Oz), ~35% smaller
+            - `mquickjs_wasi.wasm` - Standard build (-O2)
+            - `mquickjs_wasi_small.wasm` - Size-optimized (-Oz), ~35% smaller
 
             Verify with: `sha256sum -c SHA256SUMS`
           generate_release_notes: true
