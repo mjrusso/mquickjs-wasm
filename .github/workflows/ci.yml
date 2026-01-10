@@ -1,0 +1,241 @@
+name: CI
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9am UTC
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Build even if no upstream updates'
+        type: boolean
+        default: false
+      force_release:
+        description: 'Build and release even if no upstream updates'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Check for upstream mquickjs updates
+  check-upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      needs_update: ${{ steps.check.outputs.needs_update }}
+      current_rev: ${{ steps.current.outputs.rev }}
+      current_date: ${{ steps.current.outputs.date }}
+      latest_rev: ${{ steps.latest.outputs.rev }}
+      latest_date: ${{ steps.latest.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get current pinned commit
+        id: current
+        run: |
+          CURRENT_REV=$(grep 'mquickjs-rev = ' flake.nix | sed 's/.*"\(.*\)".*/\1/')
+          CURRENT_DATE=$(grep 'mquickjs-date = ' flake.nix | sed 's/.*"\(.*\)".*/\1/')
+          echo "rev=$CURRENT_REV" >> $GITHUB_OUTPUT
+          echo "date=$CURRENT_DATE" >> $GITHUB_OUTPUT
+          echo "Current: $CURRENT_REV ($CURRENT_DATE)"
+
+      - name: Get latest mquickjs commit
+        id: latest
+        run: |
+          LATEST=$(git ls-remote https://github.com/bellard/mquickjs.git HEAD | cut -f1)
+          LATEST_DATE=$(curl -s "https://api.github.com/repos/bellard/mquickjs/commits/$LATEST" | jq -r '.commit.committer.date' | cut -d'T' -f1)
+          echo "rev=$LATEST" >> $GITHUB_OUTPUT
+          echo "date=$LATEST_DATE" >> $GITHUB_OUTPUT
+          echo "Latest: $LATEST ($LATEST_DATE)"
+
+      - name: Check if update needed
+        id: check
+        run: |
+          if [ "${{ steps.current.outputs.rev }}" = "${{ steps.latest.outputs.rev }}" ]; then
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "Already up to date"
+          else
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "Update available!"
+          fi
+
+  # Update flake.nix with new mquickjs commit
+  update-flake:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+
+      - name: Update flake.nix
+        run: |
+          LATEST_REV="${{ needs.check-upstream.outputs.latest_rev }}"
+          LATEST_DATE="${{ needs.check-upstream.outputs.latest_date }}"
+
+          sed -i "s/mquickjs-rev = \".*\"/mquickjs-rev = \"$LATEST_REV\"/" flake.nix
+          sed -i "s/mquickjs-date = \".*\"/mquickjs-date = \"$LATEST_DATE\"/" flake.nix
+
+          # Get correct hash by attempting build (the first attempt will fail with hash mismatch).
+          set +e
+          BUILD_OUTPUT=$(nix build 2>&1)
+          set -e
+          CORRECT_HASH=$(echo "$BUILD_OUTPUT" | grep -oP 'got:\s+\Ksha256-[A-Za-z0-9+/=]+' | head -1)
+          if [ -z "$CORRECT_HASH" ]; then
+            echo "Failed to extract hash from build output"
+            exit 1
+          fi
+          sed -i "s|mquickjs-hash = \".*\"|mquickjs-hash = \"$CORRECT_HASH\"|" flake.nix
+
+          # Verify the updated hash actually works.
+          echo "Verifying build with updated hash..."
+          nix build --print-build-logs
+
+      - name: Commit and push
+        run: |
+          LATEST_REV="${{ needs.check-upstream.outputs.latest_rev }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git commit -m "Update mquickjs to $LATEST_REV"
+          git push origin main
+
+  # Build WASM artifacts
+  build:
+    needs: [check-upstream, update-flake]
+    if: always() && (needs.update-flake.result == 'success' || inputs.force_build || inputs.force_release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+
+      - name: Build with Nix
+        run: nix build --print-build-logs
+
+      - name: List output
+        run: |
+          ls -la result/lib/
+          file result/lib/*.wasm
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mquickjs-wasm
+          path: result/lib/*.wasm
+
+  # Test WASM artifacts
+  test:
+    needs: build
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mquickjs-wasm
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+
+      - name: Run smoke tests
+        run: |
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref.wasm
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_small.wasm
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_wasi.wasm --wasi
+          nix run nixpkgs#uv -- run test/smoke.py mquickjs_exnref_wasi_small.wasm --wasi
+
+  # Release (when update-flake created a new version, or force_release)
+  release:
+    needs: [check-upstream, update-flake, build, test]
+    if: always() && needs.test.result == 'success' && (needs.update-flake.result == 'success' || inputs.force_release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for tagging)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mquickjs-wasm
+
+      - name: Generate checksums
+        run: |
+          sha256sum *.wasm > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Get tag info
+        id: tag
+        run: |
+          if [ "${{ needs.update-flake.result }}" = "success" ]; then
+            REV="${{ needs.check-upstream.outputs.latest_rev }}"
+            DATE="${{ needs.check-upstream.outputs.latest_date }}"
+          else
+            REV="${{ needs.check-upstream.outputs.current_rev }}"
+            DATE="${{ needs.check-upstream.outputs.current_date }}"
+          fi
+          SHORT_REV="${REV:0:7}"
+          TAG="v${DATE}+${SHORT_REV}"
+          echo "name=$TAG" >> $GITHUB_OUTPUT
+          echo "commit=$SHORT_REV" >> $GITHUB_OUTPUT
+          echo "full_commit=$REV" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "Tag $TAG already exists, skipping"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: |
+            mquickjs_exnref.wasm
+            mquickjs_exnref_small.wasm
+            mquickjs_exnref_wasi.wasm
+            mquickjs_exnref_wasi_small.wasm
+            SHA256SUMS
+          body: |
+            **mquickjs commit:** https://github.com/bellard/mquickjs/commit/${{ steps.tag.outputs.full_commit }}
+
+            ## Artifacts
+
+            **Deterministic (sandboxed eval):**
+            - `mquickjs_exnref.wasm` - Standard build (-O2), faster execution
+            - `mquickjs_exnref_small.wasm` - Size-optimized (-Oz), ~35% smaller
+
+            **WASI (real time/random):**
+            - `mquickjs_exnref_wasi.wasm` - Standard build (-O2)
+            - `mquickjs_exnref_wasi_small.wasm` - Size-optimized (-Oz), ~35% smaller
+
+            Verify with: `sha256sum -c SHA256SUMS`
+          generate_release_notes: true
