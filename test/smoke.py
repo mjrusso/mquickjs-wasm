@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["wasmtime"]
+# dependencies = ["wasmtime>=40.0.0"]
 # ///
 """Smoke test for mquickjs WASM builds using wasmtime."""
 
