@@ -229,13 +229,10 @@ jobs:
 
             ## Artifacts
 
-            **Deterministic (sandboxed eval):**
             - `mquickjs.wasm` - Standard build (-O2), faster execution
             - `mquickjs_small.wasm` - Size-optimized (-Oz), ~35% smaller
-
-            **WASI (real time/random):**
-            - `mquickjs_wasi.wasm` - Standard build (-O2)
-            - `mquickjs_wasi_small.wasm` - Size-optimized (-Oz), ~35% smaller
+            - `mquickjs_wasi.wasm` - Standard build (-O2) with WASI imports, faster execution
+            - `mquickjs_wasi_small.wasm` - Size-optimized (-Oz) with WASI imports, ~35% smaller
 
             Verify with: `sha256sum -c SHA256SUMS`
           generate_release_notes: true
