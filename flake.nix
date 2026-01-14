@@ -25,7 +25,7 @@
         # Version format: YYYY.MM.DD+<short-commit-hash>
         version = "${mquickjs-date}+${builtins.substring 0 7 mquickjs-rev}";
 
-        mkMquickjsWasm = { optLevel, suffix, description, wrapperFile ? ./src/wasm_wrapper.c }:
+        mkMquickjsWasm = { optLevel, suffix, description, wrapperFile ? ./src/wasm_wrapper.c, isWasi ? false }:
           pkgs.stdenv.mkDerivation {
             pname = "mquickjs-wasm${suffix}";
             inherit version;
@@ -61,6 +61,7 @@
               echo "Compiling to WASM at ${optLevel} with finalized exception handling (exnref)..."
               emcc \
                 ${optLevel} \
+                ${if isWasi then "-D__wasi__" else ""} \
                 -s WASM=1 \
                 -s STANDALONE_WASM=1 \
                 -fwasm-exceptions \
@@ -109,6 +110,7 @@
           optLevel = "-O2";
           suffix = "_wasi";
           wrapperFile = ./src/wasm_wrapper_wasi.c;
+          isWasi = true;
           description = "mquickjs JavaScript engine compiled to WASM (WASI, real time/random)";
         };
 
@@ -117,6 +119,7 @@
           optLevel = "-Oz";
           suffix = "_wasi_small";
           wrapperFile = ./src/wasm_wrapper_wasi.c;
+          isWasi = true;
           description = "mquickjs JavaScript engine compiled to WASM (WASI, size-optimized)";
         };
 
