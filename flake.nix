@@ -11,9 +11,9 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        mquickjs-rev = "767e5db54241f0b53193a04aea193c823a9e3121";
-        mquickjs-date = "2026-01-03";  # Date of the pinned commit
-        mquickjs-hash = "sha256-Lb0Vp5v+MCoE/T7DnoTC9ejXlB2O/ljuZMI1l94zXyM=";
+        mquickjs-rev = "ee50431eac9b14b99f722b537ec4cac0c8dd75ab";
+        mquickjs-date = "2026-01-15";  # Date of the pinned commit
+        mquickjs-hash = "sha256-X+uDXQ4dQB5E5gV3lgWRq65zgkV2cRcoOs9opE/Bvc4=";
 
         mquickjs-src = pkgs.fetchFromGitHub {
           owner = "bellard";
